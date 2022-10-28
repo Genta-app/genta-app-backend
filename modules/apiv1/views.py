@@ -1,9 +1,21 @@
 #
-# Copyright (c) 2022 Genta.app. All rights reserved.
+# Copyright (c) 2022 Digital Five Pty Ltd
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-from click import confirmation_option
-from flask import render_template, Blueprint, request, redirect
+from flask import Blueprint, request, redirect
 from flask import current_app as app
 
 apiv1_blueprint = Blueprint('apiv1', __name__)
@@ -31,6 +43,7 @@ import lib.errors
 import lib.mail
 import lib.simplejwt
 import lib.logging as log
+import modules.apiv1.adminapi as adminapi
 
 TRX_CODE_SUBSCRIBE_STANDARD_SUCCESS = "1"
 TRX_CODE_STRIPE_ERROR = "2"
@@ -42,8 +55,8 @@ SUBSCRIPTION_STATUS_PAID = "paid"
 SUBSCRIPTION_STATUS_PAYMENT_FAILED = "payment-failed"
 SUBSCRIPTION_STATUS_ERROR = "error" # error other than failed payment
 
-ACCOUNT_TYPE_STANDARD = "standard";
-ACCOUNT_TYPE_FREE = "free";
+ACCOUNT_TYPE_STANDARD = "standard"
+ACCOUNT_TYPE_FREE = "free"
 
 ENABLE_STRIPE = False # disable stripe for beta
 
@@ -375,7 +388,7 @@ def select_guests(cursor):
 
 
 def insert_album(c, user_id, bucket_id, identifier, album_key_nonce, data_nonce,
-        album_bucket_prefix, album_bucket_key_id, album_bucket_key, encrypted):
+        album_bucket_prefix, album_bucket_key_id, encrypted, encrypted_bucket_prefix_key):
     query = """
         INSERT INTO album (
             identifier,
@@ -387,12 +400,13 @@ def insert_album(c, user_id, bucket_id, identifier, album_key_nonce, data_nonce,
             bucket_prefix_key_id,
             bucket_prefix_key,
             created,
-            encrypted)
+            encrypted,
+            encrypted_bucket_prefix_key)
         VALUES
-            (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)
+            (%s, %s, %s, %s, %s, %s, %s, '', CURRENT_TIMESTAMP, %s, %s)
         """
     c.execute(query, (identifier, user_id, bucket_id, album_key_nonce, data_nonce,
-        album_bucket_prefix, album_bucket_key_id, album_bucket_key, encrypted))
+        album_bucket_prefix, album_bucket_key_id, encrypted, encrypted_bucket_prefix_key))
     return c.lastrowid
 
 def select_album_owner_id(c, *, album_rowid, album_identifier):
@@ -527,10 +541,11 @@ def insert_bucket(c, user_id, identifier, service, bucket, bucket_name):
             bucket_name,
             bucket_prefix,
             bucket_key_id,
-            bucket_key
+            bucket_key,
+            encrypted_bucket_key
         )
         VALUES
-            (%s, %s, %s, %s, %s, %s, '', '', '')
+            (%s, %s, %s, %s, %s, %s, '', '', '', '')
         """
 
     c.execute(query, (identifier, user_id, 1, service, bucket, bucket_name))
@@ -546,8 +561,7 @@ def select_bucket_by_identifier(cursor, bucket_identifier):
             bucket,
             bucket_name,
             bucket_prefix,
-            bucket_key_id,
-            bucket_key
+            bucket_key_id
         FROM
             bucket
         WHERE
@@ -1951,8 +1965,17 @@ def api_user_create():
             bucket_bucketid,
             bucket_name)
 
+        encrypted_album_bucket_key = adminapi.encrypt_bucket_key(album_bucket_key)
+
+        if encrypted_album_bucket_key is None:
+            log.webapi(
+              log.API_CALL_POSTUSER_ERROR,
+              {"cid": callid, "error": 500, "point": "encrypt_bucket_key failed"},
+            )
+            return '', 500
+
         if account_type == ACCOUNT_TYPE_STANDARD:
-            insert_album(
+              insert_album(
                 cursor,
                 user.row_id,
                 bucket_id,
@@ -1961,8 +1984,9 @@ def api_user_create():
                 encrypted_album_data,
                 album_bucket_prefix,
                 album_bucket_key_id,
-                album_bucket_key,
-                encrypted)
+                encrypted,
+                encrypted_album_bucket_key,
+              )
 
         confirmation_email_ok = False
 
@@ -2567,77 +2591,106 @@ def api_bucket_attach():
 
     bucket_identifier = 'bkt' + secrets.token_hex(16)
 
-    callid = log.new_callid()
-    log.webapi(log.API_CALL_POSTBUCKET, {"cid": callid, "bucket": bucket_identifier})
-
     pack = lib.packer.unpack_value(request.data)
 
-    bucket_service = pack['bucket_service']
-    bucket_name = pack['bucket_name']
-    bucket_prefix = pack['bucket_prefix']
-    bucket_id = pack['bucket_id']
-    bucket_key_id = pack['bucket_key_id']
-    bucket_key = pack['bucket_key']
-    cors_autoconfig = pack['cors_autoconfig']
+    operation_type = pack['operation_type']
 
-    client = lib.b2.Client()
+    callid = log.new_callid()
+    log.webapi(log.API_CALL_POSTBUCKET, {
+      "cid": callid, "bucket": bucket_identifier, "optype": operation_type,
+    })
 
-    # check if bucket id/key are ok
-    auth_ok = client.authorize_account(bucket_key_id, bucket_key)
-    if not auth_ok:
-        log.webapi(log.API_CALL_POSTBUCKET_ERROR,
-            {"cid": callid, "error": 400, "point": 'A'})
-        return 'bucket authorization failed', 400
+    if operation_type == 'attach-existing':
+        bucket_service = pack['bucket_service']
+        bucket_name = pack['bucket_name']
+        bucket_prefix = pack['bucket_prefix']
+        bucket_id = pack['bucket_id']
+        bucket_key_id = pack['bucket_key_id']
+        bucket_key = pack['bucket_key']
+        cors_autoconfig = pack['cors_autoconfig']
 
-    is_test = app.config['MEDIASERVICE_ENV'] == "test"
+        client = lib.b2.Client()
 
-    # auto-config CORS if requested
-    if cors_autoconfig == 1:
-        cors_autoconfig_resp_status = client.update_bucket(bucket_id, lib.b2.get_cors_rules(is_test))
-        print("cors_autoconfig_resp_status", cors_autoconfig_resp_status)
+        # check if bucket id/key are ok
+        auth_ok = client.authorize_account(bucket_key_id, bucket_key)
+        if not auth_ok:
+            log.webapi(log.API_CALL_POSTBUCKET_ERROR,
+                {"cid": callid, "error": 400, "point": 'A'})
+            return 'bucket authorization failed', 400
 
-        if cors_autoconfig_resp_status == 200:
-            pass
-        else:
-            log.webapi(log.API_CALL_POSTBUCKET_ERROR, {"cid": callid, "error": 400, "point": 'AA'})
-            return 'CORS auto-config failed', 400
+        is_test = app.config['MEDIASERVICE_ENV'] == "test"
+
+        # auto-config CORS if requested
+        if cors_autoconfig == 1:
+            cors_autoconfig_resp_status = client.update_bucket(bucket_id, lib.b2.get_cors_rules(is_test))
+            print("cors_autoconfig_resp_status", cors_autoconfig_resp_status)
+
+            if cors_autoconfig_resp_status == 200:
+                pass
+            else:
+                log.webapi(log.API_CALL_POSTBUCKET_ERROR, {"cid": callid, "error": 400, "point": 'AA'})
+                return 'CORS auto-config failed', 400
 
 
-    # check if bucket cors settings are ok
-    bucket_list = client.list_buckets(bucket_id)
-    if not bucket_list:
-        log.webapi(log.API_CALL_POSTBUCKET_ERROR,
-            {"cid": callid, "error": 400, "point": 'B'})
-        return 'invalid bucket id', 400
+        # check if bucket cors settings are ok
+        bucket_list = client.list_buckets(bucket_id)
+        if not bucket_list:
+            log.webapi(log.API_CALL_POSTBUCKET_ERROR,
+                {"cid": callid, "error": 400, "point": 'B'})
+            return 'invalid bucket id', 400
 
-    cors_rules = bucket_list[0]['corsRules']
+        cors_rules = bucket_list[0]['corsRules']
 
-    if not cors_rules:
-        log.webapi(log.API_CALL_POSTBUCKET_ERROR,
-            {"cid": callid, "error": 400, "point": 'C'})
-        return 'invalid cors settings: no CORS rules found', 400
+        if not cors_rules:
+            log.webapi(log.API_CALL_POSTBUCKET_ERROR,
+                {"cid": callid, "error": 400, "point": 'C'})
+            return 'invalid cors settings: no CORS rules found', 400
 
-    cr = cors_rules[0]
-    cors_validation_result, cors_validation_message = lib.b2.validate_cors_rule(cr, is_test)
-    if not cors_validation_result:
-        return 'invalid cors settings: %s' % (cors_validation_message, ), 400
+        cr = cors_rules[0]
+        cors_validation_result, cors_validation_message = lib.b2.validate_cors_rule(cr, is_test)
+        if not cors_validation_result:
+            return 'invalid cors settings: %s' % (cors_validation_message, ), 400
 
-    with lib.database.connect() as conn:
-        cursor = lib.database.get_cursor(conn)
-        query = """
-            INSERT INTO
-                bucket (identifier, user_id, is_system,
-                    service, bucket, bucket_name, bucket_prefix, bucket_key_id, bucket_key)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (bucket_identifier, flask_login.current_user.row_id,
-            0, bucket_service, bucket_id, bucket_name, bucket_prefix,
-            bucket_key_id, bucket_key))
-        conn.commit()
+        encrypted_bucket_key = adminapi.encrypt_bucket_key(bucket_key)
 
-    log.webapi(log.API_CALL_POSTBUCKET_OK, {"cid": callid})
-    return '', 200
+        if encrypted_bucket_key is None:
+          log.webapi(log.API_CALL_POSTBUCKET_ERROR,
+            {"cid": callid, "point": "encrypt_bucket_key failed", "status": r.status_code})
+          return '', r.status_code
 
+        with lib.database.connect() as conn:
+            cursor = lib.database.get_cursor(conn)
+            query = """
+                INSERT INTO bucket (
+                  identifier, user_id, is_system, service, bucket, bucket_name, bucket_prefix,
+                  bucket_key_id, bucket_key, encrypted_bucket_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '', %s)
+            """
+            cursor.execute(query, (bucket_identifier, flask_login.current_user.row_id,
+                0, bucket_service, bucket_id, bucket_name, bucket_prefix, bucket_key_id,
+                encrypted_bucket_key))
+
+            conn.commit()
+
+        log.webapi(log.API_CALL_POSTBUCKET_OK, {"cid": callid})
+        return '', 200
+
+    elif operation_type == 'attach-new':
+        master_key_id = pack['master_key_id']
+        master_key = pack['master_key']
+
+        r = adminapi.attach_new_bucket(flask_login.current_user.row_id, master_key_id, master_key)
+
+        if r.status_code != 200:
+          log.webapi(log.API_CALL_POSTBUCKET_ERROR,
+            {"cid": callid, "point": "adminapi.attach_new_bucket", "status": r.status_code})
+          return '', r.status_code
+
+        log.webapi(log.API_CALL_POSTBUCKET_OK, {"cid": callid})
+        return response_from_pack(r.content), r.status_code
+    else:
+        log.webapi(log.API_CALL_POSTBUCKET_ERROR, {"cid": callid, "point": "BADOPTYPE"})
+        return '', 400
 
 @apiv1_blueprint.route('/api/v1/bucket', methods=['DELETE'])
 @lib.errors.exception_wrapper
@@ -2776,7 +2829,14 @@ def api_album_create():
         bucket_prefix = bucket_rows[0].bucket_prefix
         bucket_bucketid = bucket_rows[0].bucket
         bucket_key_id = bucket_rows[0].bucket_key_id
-        bucket_key = bucket_rows[0].bucket_key
+        bucket_key = adminapi.decrypt_bucket_key(bucket_id)
+
+        if bucket_key is None:
+            log.webapi(
+              log.API_CALL_POSTALBUM_ERROR,
+              {"cid": callid, "point": "decrypt_bucket_key: failed", "error": 401},
+            )
+            return '', 401
 
         client = lib.b2.Client()
 
@@ -2791,6 +2851,14 @@ def api_album_create():
             client.authorize_account(bucket_key_id, bucket_key)
             album_bucket_key_id, album_bucket_key = bucket_key_id, bucket_key
 
+        encrypted_album_bucket_key = adminapi.encrypt_bucket_key(album_bucket_key)
+        if encrypted_album_bucket_key is None:
+            log.webapi(
+              log.API_CALL_POSTALBUM_ERROR,
+              {"cid": callid, "point": "encrypt_bucket_key: failed", "error": 401},
+            )
+            return '', 401
+
         insert_album(
             cursor,
             flask_login.current_user.row_id,
@@ -2800,8 +2868,8 @@ def api_album_create():
             album_data,
             bucket_prefix + album_bucket_prefix,
             album_bucket_key_id,
-            album_bucket_key,
-            encrypted)
+            encrypted,
+            encrypted_album_bucket_key)
 
         conn.commit()
 
@@ -2895,7 +2963,12 @@ def api_bucket_upload_token():
         bucket_id = row.bucket
         is_system = row.is_system
         album_bucket_key_id = row.bucket_prefix_key_id
-        album_bucket_key = row.bucket_prefix_key
+        album_bucket_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
+
+        if album_bucket_key is None:
+            log.webapi(log.API_CALL_POSTBUCKETUPLOADTOKEN_ERROR,
+                {"cid": callid, "error": 400, "point": "decrypt_album_prefix_bucket_key failed"})
+            return '', 400
 
         if is_system: # album in system system bucket
             test_env = app.config['MEDIASERVICE_ENV'] == "test"
@@ -2977,7 +3050,7 @@ def api_bucket_download_token():
         bucket_key_prefix = row.album_bucket_prefix
         bucket_id = row.bucket
         api_key_id = row.bucket_prefix_key_id
-        api_key = row.bucket_prefix_key
+        api_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
 
         client = lib.b2.Client()
         if not client.authorize_account(api_key_id, api_key):
@@ -3580,9 +3653,9 @@ def api_file_download_token():
                 f.bucket_file_name bucket_file_name,
                 f.bucket_thumb_name bucket_thumb_name,
                 ii.bucket_file_name bucket_large_file_name,
+                a.id album_id,
                 a.album_bucket_prefix album_bucket_prefix,
                 a.bucket_prefix_key_id bucket_prefix_key_id,
-                a.bucket_prefix_key bucket_prefix_key,
                 b.bucket bucket_id
             FROM
                 file f
@@ -3610,10 +3683,16 @@ def api_file_download_token():
         bucket_key_prefix = rows[0].album_bucket_prefix
         bucket_id = rows[0].bucket_id
         api_key_id = rows[0].bucket_prefix_key_id
-        api_key = rows[0].bucket_prefix_key
+        api_key = adminapi.decrypt_album_prefix_bucket_key(rows[0].album_id)
         bucket_file_name = rows[0].bucket_file_name
         bucket_thumb_name = rows[0].bucket_thumb_name
         bucket_large_file_name = rows[0].bucket_large_file_name
+
+        if api_key is None:
+            log.webapi(log.API_CALL_POSTFILEDOWNLOADTOKEN_ERROR,
+                {"cid": callid, "error": 400, "point": "decrypt_album_prefix_bucket_key failed"}
+            )
+            return '', 400
 
         client = lib.b2.Client()
         if not client.authorize_account(api_key_id, api_key):
@@ -3789,8 +3868,15 @@ def api_large_file_start():
 
         bucket_id = row.bucket
         album_bucket_key_id = row.bucket_prefix_key_id
-        album_bucket_key = row.bucket_prefix_key
+        album_bucket_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
         album_bucket_prefix = row.album_bucket_prefix
+
+        if album_bucket_key is None:
+            log.webapi(
+              log.API_CALL_POSTLARGEFILESTART_ERROR,
+              {"cid": callid, "error": 400, "point": "decrypt_album_prefix_bucket_key"},
+            )
+            return '', 400
 
         client = lib.b2.Client()
         client.authorize_account(album_bucket_key_id, album_bucket_key)
@@ -3852,8 +3938,13 @@ def api_large_file_get_part_upload_url():
 
         bucket_id = row.bucket
         album_bucket_key_id = row.bucket_prefix_key_id
-        album_bucket_key = row.bucket_prefix_key
+        album_bucket_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
         album_bucket_prefix = row.album_bucket_prefix
+
+        if album_bucket_key is None:
+            log.webapi(log.API_CALL_POSTLARGEFILEPARTUPLOADURL_ERROR,
+                {"cid": callid, "error": 400, "point": "decrypt_album_prefix_bucket_key failed"})
+            return '', 400
 
         client = lib.b2.Client()
         client.authorize_account(album_bucket_key_id, album_bucket_key)
@@ -3910,8 +4001,15 @@ def api_large_file_finish():
             return '', 400
 
         album_bucket_key_id = row.bucket_prefix_key_id
-        album_bucket_key = row.bucket_prefix_key
+        album_bucket_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
         album_bucket_prefix = row.album_bucket_prefix
+
+        if album_bucket_key is None:
+            log.webapi(
+              log.API_CALL_POSTLARGEFILEFINISH_ERROR,
+              {"cid": callid, "error": 400, "point": "decrypt_album_prefix_bucket_key"},
+            )
+            return '', 400
 
         if finish_large_file == 1:
             client = lib.b2.Client()
@@ -4110,3 +4208,24 @@ def api_user_feedback():
         conn.commit()
 
     return '', 200
+
+@apiv1_blueprint.route('/api/v1/task', methods=['GET'])
+@lib.errors.exception_wrapper
+@flask_login.login_required
+@trial_subscription_required
+def api_background_task():
+
+  task_id = request.args.get('id')
+  user_id = flask_login.current_user.row_id
+
+  callid = log.new_callid()
+  log.webapi(log.API_CALL_TASK, {"cid": callid, "task_id": task_id})
+
+  r = adminapi.get_task_status(user_id, task_id)
+
+  if r.status_code != 200:
+    log.webapi(log.API_CALL_TASK_ERROR, {"cid": callid, "status": r.status_code})
+    return '', r.status_code
+
+  log.webapi(log.API_CALL_TASK_OK, {"cid": callid})
+  return response_from_pack(r.content), r.status_code
