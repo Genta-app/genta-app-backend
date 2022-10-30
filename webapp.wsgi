@@ -1,7 +1,20 @@
 #!/usr/bin/python3
 
 #
-# Copyright (c) 2022 Genta.app. All rights reserved.
+# Copyright (c) 2022 Digital Five Pty Ltd
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
 import re
@@ -79,6 +92,8 @@ def application(req_environ, start_response):
             'STRIPE_PRICE_2T',
             'STRIPE_PRICE_5T',
             'STRIPE_PRICE_10T',
+            'ADMIN_API_URL',
+            'ADMIN_LOCALAPI_URL',
         ]
 
         for k in env_key_list:
@@ -139,6 +154,9 @@ if os.getenv('MEDIASERVICE_WEBAPP_STANDALONE') == '1':
         MEDIASERVICE_TEST_EMAIL_INFIX2 = os.environ['MEDIASERVICE_TEST_EMAIL_INFIX2']   # send verification to sysh@protonmail.com
         MEDIASERVICE_TEST_EMAIL_INFIX3 = os.environ['MEDIASERVICE_TEST_EMAIL_INFIX3']   # auto-accept invite, CK112233, test only
         MEDIASERVICE_TEST_EMAIL_REPLACEMENT = os.environ['MEDIASERVICE_TEST_EMAIL_REPLACEMENT']
+
+        ADMIN_API_URL = os.environ['ADMIN_API_URL']
+        ADMIN_LOCALAPI_URL = os.environ['ADMIN_LOCALAPI_URL']
 
     @app.after_request
     def set_response_headers(response):

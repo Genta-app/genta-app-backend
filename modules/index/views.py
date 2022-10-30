@@ -1,12 +1,22 @@
 #
-# Copyright (c) 2022 Genta.app. All rights reserved.
+# Copyright (c) 2022 Digital Five Pty Ltd
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
 from flask import redirect, render_template, Blueprint, request, send_from_directory, send_file
 index_blueprint = Blueprint('index', __name__)
-
-import flask
-import werkzeug
 
 import lib.logging as log
 
@@ -21,26 +31,6 @@ def index_hashed_static_resource(filehash, ext):
 @index_blueprint.route('/dl.<string:filehash>.<string:ext>')
 def dl_hashed_static_resource(filehash, ext):
     return send_from_directory("modules/public", "dl.%s.%s" % (filehash, ext, ))
-
-#@index_blueprint.route('/index.html')
-#@index_blueprint.route('/signup')
-#@index_blueprint.route('/signup/<string:email>')
-#@index_blueprint.route('/login')
-#@index_blueprint.route('/logout')
-#@index_blueprint.route('/buckets')
-#@index_blueprint.route('/account')
-#@index_blueprint.route('/albums')
-#@index_blueprint.route('/upload')
-#@index_blueprint.route('/subscription')
-#@index_blueprint.route('/subscription/<string:option>')
-#@index_blueprint.route('/upload/<string:album>')
-#@index_blueprint.route('/view/<string:album>')
-#@index_blueprint.route('/view/<string:album>/')
-#@index_blueprint.route('/view/<string:album>/<int:yyyymm>')
-#def index_static_page_html(album=None, yyyymm=None, email=None, option=None):
-#    resp = send_from_directory("modules/public", "index.html")
-#    log.webpage(resp.status)
-#    return resp
 
 @index_blueprint.route('/stream.js')
 def index_static_page_html_():
@@ -86,22 +76,6 @@ def direct_link_viewer_static_page_html(link_key=None):
     resp = send_from_directory("modules/public", "dl.html")
     log.webpage(resp.status)
     return resp
-
-#@index_blueprint.route('/new.html')
-#def new_static_page_html():
-#    return send_from_directory("modules/public", "new.html")
-
-# @index_blueprint.route('/privacy-policy')
-# def privacy_policy_html():
-#     resp = send_from_directory("modules/public", "privacy-policy", mimetype='text/html')
-#     log.webpage(resp.status)
-#     return resp
-
-# @index_blueprint.route('/terms-of-service')
-# def terms_of_service_html():
-#     resp = send_from_directory("modules/public", "terms-of-service", mimetype='text/html')
-#     log.webpage(resp.status)
-#     return resp
 
 @index_blueprint.route('/<string:image>.jpg')
 def index_static_image_jpg(image):
