@@ -2830,14 +2830,6 @@ def api_album_create():
         bucket_prefix = bucket_rows[0].bucket_prefix
         bucket_bucketid = bucket_rows[0].bucket
         bucket_key_id = bucket_rows[0].bucket_key_id
-        bucket_key = adminapi.decrypt_bucket_key(bucket_id)
-
-        if bucket_key is None:
-            log.webapi(
-              log.API_CALL_POSTALBUM_ERROR,
-              {"cid": callid, "point": "decrypt_bucket_key: failed", "error": 401},
-            )
-            return '', 401
 
         client = lib.b2.Client()
 
@@ -2849,6 +2841,14 @@ def api_album_create():
             album_bucket_key_id, album_bucket_key = \
                 client.create_key_for_prefix(bucket_bucketid, album_bucket_prefix)
         else:
+            bucket_key = adminapi.decrypt_bucket_key(bucket_id)
+            if bucket_key is None:
+                log.webapi(
+                  log.API_CALL_POSTALBUM_ERROR,
+                  {"cid": callid, "point": "decrypt_bucket_key: failed", "error": 401},
+                )
+                return '', 401
+
             client.authorize_account(bucket_key_id, bucket_key)
             album_bucket_key_id, album_bucket_key = bucket_key_id, bucket_key
 
