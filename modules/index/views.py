@@ -41,10 +41,10 @@ def index_static_page_html_():
 
 
 @index_blueprint.route('/index.html')
-#@index_blueprint.route('/signup')
+@index_blueprint.route('/signup')
 @index_blueprint.route('/apply')
-#@index_blueprint.route('/signup/<string:email>')
-@index_blueprint.route('/signup/<string:email>/<string:email_code>')
+@index_blueprint.route('/signup/<string:email>')
+#@index_blueprint.route('/signup/<string:email>/<string:email_code>')
 @index_blueprint.route('/album/<string:email>')
 @index_blueprint.route('/login')
 @index_blueprint.route('/logout')

@@ -1832,7 +1832,7 @@ def api_user_create():
     user_data = pack['user']
     account_type = user_data['account_type']
     email = user_data['email'].decode('utf8').lower()
-    email_code = user_data['email_code']
+    #email_code = user_data['email_code']
 
     callid = log.new_callid()
     log.webapi(log.API_CALL_POSTUSER, {"cid": callid, "email": email, "account_type": account_type, })
@@ -1854,20 +1854,21 @@ def api_user_create():
                 {"cid": callid, "reason": "user disabled comms"})
             return '', 400
 
-        cursor.execute("""
-            SELECT email_code FROM account_application_registry WHERE email = %s AND registration_enabled = TRUE
-            """, (email, ))
+        # cursor.execute("""
+        #     SELECT email_code FROM account_application_registry WHERE email = %s AND registration_enabled = TRUE
+        #     """, (email, ))
 
-        rows = cursor.fetchall()
+        # rows = cursor.fetchall()
 
-        if len(rows) == 0:
-            log.webapi(log.API_CALL_POSTUSER_ERROR,
-                {"cid": callid, "reason": f"registration not enabled for ${email}"})
-            return '', 400
+        # if len(rows) == 0:
+        #     log.webapi(log.API_CALL_POSTUSER_ERROR,
+        #         {"cid": callid, "reason": f"registration not enabled for ${email}"})
+        #     return '', 400
 
-        email_confirmation_code = rows[0].email_code
+        # email_confirmation_code = rows[0].email_code
 
-    request_email_confirmation_code = email_confirmation_code != email_code
+    #request_email_confirmation_code = email_confirmation_code != email_code
+    request_email_confirmation_code = True
 
     auth_hash = user_data['auth']
     encrypted = 1 # TODO: this should come from signup defaults
@@ -2401,7 +2402,7 @@ def api_confirm_email():
             else:
                 conn.rollback()
                 log.webapi(log.API_CALL_CONFIRMEMAIL_ERROR, {"cid": callid})
-                return '', 404
+                return '', 400
 
 
 @apiv1_blueprint.route('/api/v1/user', methods=['PUT'])
