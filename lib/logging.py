@@ -123,6 +123,10 @@ API_CALL_POSTFILE = "api-call-postfile"
 API_CALL_POSTFILE_ERROR = "api-call-postfile-error"
 API_CALL_POSTFILE_OK = "api-call-postfile-ok"
 
+API_CALL_PUTFILE = "api-call-putfile"
+API_CALL_PUTFILE_ERROR = "api-call-putfile-error"
+API_CALL_PUTFILE_OK = "api-call-putfile-ok"
+
 API_CALL_PUTFILEPOSITION = "api-call-putfileposition"
 API_CALL_PUTFILEPOSITION_OK = "api-call-putfileposition-ok"
 
