@@ -60,7 +60,6 @@ ACCOUNT_TYPE_FREE = "free"
 
 ENABLE_STRIPE = False # disable stripe for beta
 
-album_identifier_re = re.compile("alb[0-9a-f]{32}")
 file_date_re = re.compile('[0-9]{4}\-[0-9]{2}\-[0-9]{2}')
 
 def valid_subscription_required(func):
@@ -429,10 +428,10 @@ def is_own_album(c, *, album_rowid=None, album_identifier=None):
 
 def is_own_file(c, *, file_rowid=None, file_identifier=None):
     if file_rowid:
-        query = "SELECT user_id FROM file WHERE id = %s AND deleted IS NULL"
+        query = "SELECT user_id FROM file WHERE id = %s AND deleted IS NULL AND version = 0"
         c.execute(query, (file_rowid, ))
     else:
-        query = "SELECT user_id FROM file WHERE identifier = %s AND deleted IS NULL"
+        query = "SELECT user_id FROM file WHERE identifier = %s AND deleted IS NULL AND version = 0"
         c.execute(query, (file_identifier, ))
     owner_rows = c.fetchall()
     if len(owner_rows) != 1:
@@ -616,7 +615,9 @@ def select_album(cursor, album_identifier):
             LEFT OUTER JOIN
                 album_file af ON a.id = af.album_id
             LEFT OUTER JOIN
-                file f ON af.file_id = f.id AND f.deleted IS NULL
+                file f ON af.file_id = f.id
+                AND f.deleted IS NULL
+                AND f.version = 0
             WHERE
                 a.user_id = %s
                 AND a.identifier = %s
@@ -657,7 +658,9 @@ def select_album(cursor, album_identifier):
             LEFT OUTER JOIN
                 album_file af ON a.id = af.album_id
             LEFT OUTER JOIN
-                file f ON af.file_id = f.id AND f.deleted IS NULL
+                file f ON af.file_id = f.id
+                AND f.deleted IS NULL
+                AND f.version = 0
             WHERE
                 sa.email_to = %s
                 AND a.identifier = %s
@@ -702,7 +705,9 @@ def select_albums(cursor):
         LEFT OUTER JOIN
             album_file af ON a.id = af.album_id
         LEFT OUTER JOIN
-            file f ON af.file_id = f.id AND f.deleted IS NULL
+            file f ON af.file_id = f.id
+            AND f.deleted IS NULL
+            AND f.version = 0
         LEFT OUTER JOIN
             index_info ii ON f.id = ii.file_id
         WHERE
@@ -755,6 +760,7 @@ def select_albums(cursor):
             AND u_from.id = a.user_id
             AND f.bucket_size > 0
             AND f.deleted IS NULL
+            AND f.version = 0
         GROUP BY
             a.id
     """
@@ -766,49 +772,6 @@ def select_albums(cursor):
         return own_album_rows + shared_album_rows
     else:
         return own_album_rows
-
-
-#def select_album_yyyymm_list(cursor, album_rowid):
-#
-#    if is_own_album(cursor, album_rowid=album_rowid):
-#        query = """
-#            SELECT
-#                DISTINCT(CAST(f.file_date AS INT) DIV 100) as yyyymm
-#            FROM
-#                album_file af, file f
-#            WHERE
-#                f.user_id = %s
-#                AND af.album_id = %s
-#                AND af.file_id = f.id
-#            ORDER BY
-#                f.file_date
-#        """
-#        cursor.execute(query, (flask_login.current_user.row_id, album_rowid, ))
-#    else:
-#        query = """
-#            SELECT
-#                DISTINCT(CAST(f.file_date AS INT) DIV 100) as yyyymm
-#            FROM
-#                album_file af,
-#                file f,
-#                shared_album sa,
-#                album a
-#            WHERE
-#                sa.email_to = %s
-#                AND sa.album_id = a.id
-#                AND sa.accepted = 1
-#                AND sa.rejected = 0
-#                AND sa.album_id = %s
-#                AND f.user_id = a.user_id
-#                AND af.album_id = sa.album_id
-#                AND af.file_id = f.id
-#            ORDER BY
-#                f.file_date
-#        """
-#        current_user = flask_login.current_user
-#        cursor.execute(query, (current_user.email, album_rowid, ))
-#
-#    return cursor.fetchall()
 
 
 def select_album_active_day_list(cursor, album_identifier, year):
@@ -826,6 +789,7 @@ def select_album_active_day_list(cursor, album_identifier, year):
                 AND af.file_id = f.id
                 AND CAST(f.file_date AS INT) DIV 10000 = %s
                 AND f.deleted IS NULL
+                AND f.version = 0
             ORDER BY
                 f.file_date
         """
@@ -850,6 +814,7 @@ def select_album_active_day_list(cursor, album_identifier, year):
                 AND af.file_id = f.id
                 AND CAST(f.file_date AS INT) DIV 10000 = %s
                 AND f.deleted IS NULL
+                AND f.version = 0
             ORDER BY
                 f.file_date
         """
@@ -889,6 +854,7 @@ def select_own_album_identifier_by_file_identifier(cursor, file_identifier):
             AND af.file_id = f.id
             AND f.identifier = %s
             AND f.deleted IS NULL
+            AND f.version = 0
     """
     cursor.execute(query, (flask_login.current_user.row_id, file_identifier, ))
     return cursor.fetchall()
@@ -906,13 +872,13 @@ def select_album_identifier_by_file_identifier(cursor, file_identifier):
             AND af.file_id = f.id
             AND f.identifier = %s
             AND f.deleted IS NULL
+            AND f.version = 0
     """
     cursor.execute(query, (file_identifier, ))
     return cursor.fetchall()
 
 
 def select_album_files_at_or_before_date(cursor, album_rowid, yyyymmdd):
-
     if is_own_album(cursor, album_rowid=album_rowid):
         query = """
             SELECT
@@ -934,6 +900,7 @@ def select_album_files_at_or_before_date(cursor, album_rowid, yyyymmdd):
                 AND f.user_id = %s
                 AND CAST(f.file_date AS INT) <= %s
                 AND f.deleted IS NULL
+                AND f.version = 0
             ORDER BY
                 f.file_date DESC, f.ordering
             LIMIT 25
@@ -967,6 +934,7 @@ def select_album_files_at_or_before_date(cursor, album_rowid, yyyymmdd):
                 AND f.user_id = a.user_id
                 AND CAST(f.file_date AS INT) <= %s
                 AND f.deleted IS NULL
+                AND f.version = 0
             ORDER BY
                 f.file_date DESC, f.ordering
             LIMIT 25
@@ -975,6 +943,71 @@ def select_album_files_at_or_before_date(cursor, album_rowid, yyyymmdd):
         cursor.execute(query, (current_user.row_id, album_rowid, current_user.email, yyyymmdd))
 
     return cursor.fetchall()
+
+
+def select_file(cursor, album_identifier, file_identifier):
+
+    if is_own_album(cursor, album_identifier=album_identifier):
+        query = """
+            SELECT
+                f.identifier identifier,
+                f.data_nonce data_nonce,
+                CAST(f.file_date AS INT) file_date,
+                f.ordering file_ordering,
+                af.file_key_nonce file_key_nonce,
+                f.comment comment,
+                f.bucket_size bucket_size,
+                1 can_edit_file,
+                1 can_delete_file
+            FROM
+                file f,
+                album a,
+                album_file af
+            WHERE
+                a.identifier = %s
+                AND af.album_id = a.id
+                AND af.file_id = f.id
+                AND f.user_id = %s
+                AND f.deleted IS NULL
+                AND f.version = 0
+                AND f.identifier = %s
+        """
+        cursor.execute(query, (album_identifier, flask_login.current_user.row_id, file_identifier))
+    else:
+        query = """
+            SELECT
+                f.identifier identifier,
+                f.data_nonce data_nonce,
+                CAST(f.file_date AS INT) file_date,
+                f.ordering file_ordering,
+                af.file_key_nonce file_key_nonce,
+                f.comment comment,
+                f.bucket_size bucket_size,
+                IF(f.creator_id = %s && sa.can_add_files = 1, 1, 0) can_edit_file,
+                0 can_delete_file
+            FROM
+                file f,
+                album_file af,
+                shared_album sa,
+                album a
+            WHERE
+                a.identifier = %s
+                AND af.album_id = a.id
+                AND af.file_id = f.id
+                AND f.user_id = a.user_id
+                AND f.deleted IS NULL
+                AND f.version = 0
+                AND f.identifier = %s
+                AND sa.email_to = %s
+                AND sa.accepted = 1
+                AND sa.rejected = 0
+                AND sa.album_id = a.id
+        """
+        current_user = flask_login.current_user
+        cursor.execute(query, (current_user.row_id, album_identifier, file_identifier, current_user.email, ))
+
+    return cursor.fetchall()
+
 
 def select_album_files_newer_than_file_id(cursor, album_rowid, file_id):
 
@@ -1011,6 +1044,9 @@ def select_album_files_newer_than_file_id(cursor, album_rowid, file_id):
                     AND f.ordering < start_f.ordering
                 )
                 AND f.deleted IS NULL
+                AND start_f.deleted IS NULL
+                AND f.version = 0
+                AND start_f.version = 0
             ORDER BY
                 f.file_date, f.ordering DESC
             LIMIT 25
@@ -1054,6 +1090,9 @@ def select_album_files_newer_than_file_id(cursor, album_rowid, file_id):
                     AND f.ordering < start_f.ordering
                 )
                 AND f.deleted IS NULL
+                AND start_f.deleted IS NULL
+                AND f.version = 0
+                AND start_f.version = 0
             ORDER BY
                 f.file_date, f.ordering DESC
             LIMIT 25
@@ -1097,6 +1136,9 @@ def select_album_files_older_than_file_id(cursor, album_rowid, file_id):
                     AND f.ordering > start_f.ordering
                 )
                 AND f.deleted IS NULL
+                AND start_f.deleted IS NULL
+                AND f.version = 0
+                AND start_f.version = 0
             ORDER BY
                 f.file_date DESC, f.ordering
             LIMIT 25
@@ -1140,6 +1182,9 @@ def select_album_files_older_than_file_id(cursor, album_rowid, file_id):
                     AND f.ordering > start_f.ordering
                 )
                 AND f.deleted IS NULL
+                AND start_f.deleted IS NULL
+                AND f.version = 0
+                AND start_f.version = 0
             ORDER BY
                 f.file_date DESC, f.ordering
             LIMIT 25
@@ -1167,6 +1212,7 @@ def select_user_total_system_bucket_used_space_bytes(cursor):
             b.user_id = %s
             AND b.is_system = 1
             AND f.deleted IS NULL
+            AND f.version = 0
     """
     cursor.execute(query, (flask_login.current_user.row_id, ))
     rows = cursor.fetchall()
@@ -1239,6 +1285,8 @@ def select_index_info(cursor, file_identifier):
             ii.file_id = f.id
             AND f.identifier = %s
             AND f.user_id = %s
+            AND f.deleted IS NULL
+            AND f.version = 0
         UNION ALL
         SELECT
             ii.data_nonce data_nonce,
@@ -1257,6 +1305,7 @@ def select_index_info(cursor, file_identifier):
             AND f.identifier = %s
             AND ii.file_id = f.id
             AND f.deleted IS NULL
+            AND f.version = 0
     """
     cursor.execute(query, (file_identifier, flask_login.current_user.row_id,
         flask_login.current_user.row_id, file_identifier))
@@ -1290,6 +1339,40 @@ def insert_user_trx_history_record(cursor, action, details):
     user_id = 0 if flask_login.current_user.is_anonymous else flask_login.current_user.row_id
     cursor.execute(query, (user_id, action, details, ))
     return cursor.rowcount
+
+
+def decrement_file_version(c, file_identifier):
+    if is_own_file(c, file_identifier=file_identifier):
+        query = """
+          UPDATE
+            file
+          SET
+            version = version - 1
+          WHERE
+            identifier = %s
+            AND user_id = %s
+        """
+        c.execute(query, (file_identifier, flask_login.current_user.row_id))
+    else:
+        query = """
+          UPDATE
+            file f
+          JOIN
+            album_file af ON f.id = af.file_id
+          JOIN
+            album a ON a.id = af.album_id
+          JOIN
+            shared_album sa ON a.id = sa.album_id
+          SET
+            f.version = f.version - 1
+          WHERE
+            f.identifier = %s
+            AND f.creator_id = %s
+            AND sa.email_to = %s
+            AND sa.can_add_files = 1
+        """
+        c.execute(query, (file_identifier, flask_login.current_user.row_id, flask_login.current_user.email))
+
 
 def response_from_pack(pack):
     resp = flask.make_response(bytes(pack))
@@ -2373,9 +2456,12 @@ def api_confirm_email():
             log.webapi(log.API_CALL_CONFIRMEMAIL, {"cid": callid, "resend": 1})
 
             query = """
-                UPDATE user_auth
-                SET email_confirmation_attempts = email_confirmation_attempts + 1
-                WHERE id = %s AND email_confirmation_attempts < 2
+                UPDATE
+                  user_auth
+                SET
+                  email_confirmation_attempts = email_confirmation_attempts + 1
+                WHERE
+                  id = %s AND email_confirmation_attempts < 2
             """
             cursor.execute(query, (flask_login.current_user.row_id, ))
             if cursor.rowcount == 1:
@@ -2389,9 +2475,12 @@ def api_confirm_email():
             code = pack['code']
             log.webapi(log.API_CALL_CONFIRMEMAIL, {"cid": callid, "code": code})
             query = """
-                UPDATE user_auth
-                SET email_confirmed = '1'
-                WHERE id = %s AND email_confirmed = %s
+                UPDATE
+                  user_auth
+                SET
+                  email_confirmed = '1'
+                WHERE
+                  id = %s AND email_confirmed = %s
             """
             cursor.execute(query, (flask_login.current_user.row_id, code))
             log.webapi(log.API_CALL_CONFIRMEMAIL, {"cid": callid, "rowcount": cursor.rowcount})
@@ -2624,8 +2713,6 @@ def api_bucket_attach():
         # auto-config CORS if requested
         if cors_autoconfig == 1:
             cors_autoconfig_resp_status = client.update_bucket(bucket_id, lib.b2.get_cors_rules(is_test))
-            print("cors_autoconfig_resp_status", cors_autoconfig_resp_status)
-
             if cors_autoconfig_resp_status == 200:
                 pass
             else:
@@ -2988,7 +3075,10 @@ def api_bucket_upload_token():
             # management (no need to track for files uploaded to bucket, but failed to register via POST /file)
 
             if used_system_space_bytes > max_system_storage_bytes:
-                log.webapi(log.API_CALL_POSTFILE_ERROR, {"cid": callid, "error": 413, "point": "quota"})
+                log.webapi(
+                    log.API_CALL_POSTBUCKETUPLOADTOKEN_ERROR,
+                    {"cid": callid, "error": 413, "point": "quota"},
+                )
                 return '', 413
 
         client = lib.b2.Client()
@@ -3079,7 +3169,7 @@ def api_bucket_download_token():
         return response_from_pack(pack), 200
 
 
-@apiv1_blueprint.route('/api/v1/file', methods=['POST'])
+@apiv1_blueprint.route('/api/v1/file', methods=['POST', 'PUT'])
 @lib.errors.exception_wrapper
 @flask_login.login_required
 @trial_subscription_required
@@ -3091,6 +3181,12 @@ def api_file_create():
     encrypted = data['encrypted']
     bucket_size = data['bucket_size']
     media_type = data['media_type']
+
+    update_existing_file = request.method == 'PUT'
+
+    log_api = log.API_CALL_PUTFILE if update_existing_file else log.API_CALL_POSTFILE
+    log_api_ok = log.API_CALL_PUTFILE_OK if update_existing_file else log.API_CALL_POSTFILE_OK
+    log_api_error = log.API_CALL_PUTFILE_ERROR if update_existing_file else log.API_CALL_POSTFILE_ERROR
 
     if encrypted:
         encrypted_file_key = data['encrypted_key']
@@ -3112,10 +3208,13 @@ def api_file_create():
     bucket_thumb_name = data['bucket_thumb_name']
     ordering = data['ordering'] if 'ordering' in data else 0
 
-    file_identifier = 'fle' + secrets.token_hex(16)
+    if update_existing_file:
+      file_identifier = data['identifier']
+    else:
+      file_identifier = 'fle' + secrets.token_hex(16)
 
     callid = log.new_callid()
-    log.webapi(log.API_CALL_POSTFILE,
+    log.webapi(log_api,
         {"cid": callid, "file": file_identifier, "album": album_identifier, "enc": encrypted})
 
     user_id = flask_login.current_user.row_id
@@ -3123,18 +3222,50 @@ def api_file_create():
     with lib.database.connect() as conn:
         c = lib.database.get_cursor(conn)
 
+        if update_existing_file:
+          # it is currently a requirement of file update process that new bucket objects are created
+          query = """
+              SELECT
+                1
+              FROM
+                file
+              WHERE
+                bucket_file_id = %s
+                OR bucket_file_name = %s
+                OR bucket_thumb_id = %s
+                OR bucket_thumb_name = %s
+              LIMIT
+                1
+          """
+          rows = c.execute(query, (bucket_file_id, bucket_file_name, bucket_thumb_id, bucket_thumb_name))
+          if rows is not None and len(rows) != 0:
+              log.webapi(log_api_error, {"cid": callid, "error": 400, "point": 0})
+              return '', 400
+
+          # if updating, get file's album
+          album_identifier_rows = select_album_identifier_by_file_identifier(c, file_identifier)
+          if len(album_identifier_rows) != 1:
+            log.webapi(log_api_error, {"cid": callid, "error": 400, "point": '0a'})
+            return '', 400
+
+          album_identifier = album_identifier_rows[0].identifier
+
         album_rows = select_album(c, album_identifier)
 
         if len(album_rows) != 1:
-            log.webapi(log.API_CALL_POSTFILE_ERROR, {"cid": callid, "error": 400, "point": 1})
+            log.webapi(log_api_error, {"cid": callid, "error": 400, "point": 1})
             return '', 400
 
         if album_rows[0].can_add_files != 1:
-            log.webapi(log.API_CALL_POSTFILE_ERROR, {"cid": callid, "error": 400, "point": 2})
+            log.webapi(log_api_error, {"cid": callid, "error": 400, "point": 2})
             return '', 400
 
         album_id = album_rows[0].id
         album_owner_id = album_rows[0].user_id
+
+        if update_existing_file:
+            # decrement all existing file versions
+            decrement_file_version(c, file_identifier)
 
         if file_date is not None:
             query = """
@@ -3164,56 +3295,69 @@ def api_file_create():
 
         file_id = c.lastrowid
 
-        if ordering == 0:
-            ordering = file_id
+        if not update_existing_file:
+            if ordering == 0:
+                ordering = file_id
 
-            # use after_identifier to set the ordering, otherwise
-            # assign ordering from the id
-            if after_identifier is not None:
-                ordering_value = 0
-                if after_identifier != "":
+                # use after_identifier to set the ordering, otherwise
+                # assign ordering from the id
+                if after_identifier is not None:
+                    ordering_value = 0
+                    if after_identifier != "":
+                        query = """
+                            SELECT
+                                ordering
+                            FROM
+                                file f,
+                                album_file af
+                            WHERE
+                                f.user_id = %s
+                                AND f.version = 0
+                                AND f.identifier = %s
+                                AND f.id = af.file_id
+                                AND af.album_id = %s
+                                AND f.deleted IS NULL
+                                AND f.version = 0
+                            """
+                        c.execute(query, (album_owner_id, after_identifier, album_id))
+
+                        rows = c.fetchall()
+                        if len(rows) == 1:
+                            ordering_value = rows[0].ordering
+
                     query = """
-                        SELECT
-                            ordering
-                        FROM
+                        UPDATE
                             file f,
                             album_file af
+                        SET
+                            f.ordering = f.ordering + 1
                         WHERE
                             f.user_id = %s
-                            AND f.identifier = %s
-                            AND f.id = af.file_id
+                            AND f.version = 0
+                            AND file_date = (SELECT file_date FROM file WHERE id = %s)
+                            AND af.file_id = f.id
                             AND af.album_id = %s
+                            AND f.ordering > %s
                             AND f.deleted IS NULL
-                        """
-                    c.execute(query, (album_owner_id, after_identifier, album_id))
+                            AND f.version = 0
+                    """
+                    c.execute(query, (album_owner_id, file_id, album_rows[0].id, ordering_value))
 
-                    rows = c.fetchall()
-                    if len(rows) == 1:
-                        ordering_value = rows[0].ordering
+                    ordering = ordering_value + 1
 
-                query = """
-                    UPDATE
-                        file f,
-                        album_file af
-                    SET
-                        f.ordering = f.ordering + 1
-                    WHERE
-                        f.user_id = %s
-                        AND file_date = (SELECT file_date FROM file WHERE id = %s)
-                        AND af.file_id = f.id
-                        AND af.album_id = %s
-                        AND f.ordering > %s
-                        AND f.deleted IS NULL
-                """
-                c.execute(query, (album_owner_id, file_id, album_rows[0].id, ordering_value))
+            query = """
+                UPDATE
+                    file
+                SET
+                    ordering = %s
+                WHERE
+                    id = %s
+                    AND deleted IS NULL
+                    AND version = 0
+            """
+            c.execute(query, (ordering, file_id, ))
 
-                ordering = ordering_value + 1
-
-        query = """
-            UPDATE file SET ordering = %s WHERE id = %s AND deleted IS NULL
-        """
-        c.execute(query, (ordering, file_id, ))
-
+        # this is per-id (not per-identifier) so need a new record for each version
         query = """
             INSERT INTO album_file (
                 album_id,
@@ -3233,7 +3377,7 @@ def api_file_create():
             },
         })
 
-        log.webapi(log.API_CALL_POSTFILE_OK, {"cid": callid})
+        log.webapi(log_api_ok, {"cid": callid})
         return response_from_pack(pack), 200
 
 
@@ -3319,6 +3463,8 @@ def api_file_update_position():
                 AND target.identifier = %s
                 AND source.deleted IS NULL
                 AND target.deleted IS NULL
+                AND source.version = 0
+                AND target.version = 0
         """
 
         c.execute(query, tuple(update_items_query_params))
@@ -3347,6 +3493,8 @@ def api_file_update_position():
                 AND f.identifier NOT IN (""" + source_identifier_list_placeholders + """)
                 AND f.deleted IS NULL
                 AND sf.deleted IS NULL
+                AND f.version = 0
+                AND sf.version = 0
         """
 
         update_ordering_query_params = [
@@ -3370,83 +3518,129 @@ def api_file_update_position():
 def api_file_list():
 
     album_identifier = request.args.get("album")
+    file_identifier = request.args.get("file")
 
-    callid = log.new_callid()
-    log.webapi(log.API_CALL_GETFILE, {"cid": callid, "album": album_identifier})
+    if album_identifier is not None:
+        callid = log.new_callid()
+        log.webapi(log.API_CALL_GETFILE, {"cid": callid, "album": album_identifier})
 
-    if not album_identifier_re.fullmatch(album_identifier):
-        log.webapi(log.API_CALL_GETFILE_ERROR, {"cid": callid, "error": 400, "point": 1})
-        return '', 400
+        with lib.database.connect() as conn:
+            c = lib.database.get_cursor(conn)
 
-    with lib.database.connect() as conn:
-        c = lib.database.get_cursor(conn)
+            album_rows = select_album(c, album_identifier)
 
-        album_rows = select_album(c, album_identifier)
+            if len(album_rows) != 1:
+                log.webapi(log.API_CALL_GETFILE_ERROR, {"cid": callid, "error": 400, "point": 2})
+                return '', 400
 
-        if len(album_rows) != 1:
-            log.webapi(log.API_CALL_GETFILE_ERROR, {"cid": callid, "error": 400, "point": 2})
-            return '', 400
+            encrypted = album_rows[0].encrypted
 
-        encrypted = album_rows[0].encrypted
+            start_file_id = request.args.get("fid")
+            log.webapi(log.API_CALL_GETFILE, {"cid": callid, "fid": start_file_id})
 
-        start_file_id = request.args.get("fid")
-        log.webapi(log.API_CALL_GETFILE, {"cid": callid, "fid": start_file_id})
+            end_file_id = request.args.get("efid")
+            log.webapi(log.API_CALL_GETFILE, {"cid": callid, "efid": start_file_id})
 
-        end_file_id = request.args.get("efid")
-        log.webapi(log.API_CALL_GETFILE, {"cid": callid, "efid": start_file_id})
+            if start_file_id is not None:
+                file_rows = select_album_files_older_than_file_id(
+                    c, album_rows[0].id, start_file_id)
+            elif end_file_id is not None:
+                file_rows = select_album_files_newer_than_file_id(
+                    c, album_rows[0].id, end_file_id)
 
-        if start_file_id is not None:
-            file_rows = select_album_files_older_than_file_id(
-                c, album_rows[0].id, start_file_id)
-        elif end_file_id is not None:
-            file_rows = select_album_files_newer_than_file_id(
-                c, album_rows[0].id, end_file_id)
+                # reverse the list. because we are selecting "up" from
+                # a given record, the record comes first in the select ordering.
+                # however in the resulting list, this record will be the oldest
+                # and therefore needs to be the last
+                file_rows = file_rows[::-1]
+            else:
+                position = request.args.get("yyyymmdd")
 
-            # reverse the list. because we are selecting "up" from
-            # a given record, the record comes first in the select ordering.
-            # however in the resulting list, this record will be the oldest
-            # and therefore needs to be the last
-            file_rows = file_rows[::-1]
-        else:
-            position = request.args.get("yyyymmdd")
+                ## validate position
+                #if position is not None:
+                #    position = int(position)
+                #    album_max_pos = album_rows[0].max_date // 100
+                #    album_min_pos = album_rows[0].min_date // 100
+                #    if not (album_min_pos <= position <= album_max_pos) or \
+                #            not(1 <= (position % 100) <= 12):
+                #        position = None
 
-            ## validate position
-            #if position is not None:
-            #    position = int(position)
-            #    album_max_pos = album_rows[0].max_date // 100
-            #    album_min_pos = album_rows[0].min_date // 100
-            #    if not (album_min_pos <= position <= album_max_pos) or \
-            #            not(1 <= (position % 100) <= 12):
-            #        position = None
+                if position is None:
+                    if album_rows[0].max_date is not None:
+                        position = album_rows[0].max_date
+                    else:
+                        position = 0
 
-            if position is None:
-                if album_rows[0].max_date is not None:
-                    position = album_rows[0].max_date
-                else:
-                    position = 0
+                log.webapi(log.API_CALL_GETFILE, {"cid": callid, "pos": position})
 
-            log.webapi(log.API_CALL_GETFILE, {"cid": callid, "pos": position})
+                file_rows = select_album_files_at_or_before_date(c, album_rows[0].id, position)
 
-            file_rows = select_album_files_at_or_before_date(c, album_rows[0].id, position)
+            files = []
 
-        files = []
+            for row in file_rows:
+                files.append({
+                    'identifier': row.identifier,
+                    'encrypted_key': row.file_key_nonce,
+                    'encrypted_data': row.data_nonce if encrypted else 0,
+                    'clear_data': row.data_nonce if not encrypted else 0,
+                    'file_date': row.file_date,
+                    'file_ordering': row.file_ordering,
+                    'comment': row.comment,
+                    'bucket_size': row.bucket_size,
+                    'can_edit_file': row.can_edit_file,
+                    'can_delete_file': row.can_delete_file,
+                })
 
-        for row in file_rows:
-            files.append({
-                'identifier': row.identifier,
-                'encrypted_key': row.file_key_nonce,
-                'encrypted_data': row.data_nonce if encrypted else 0,
-                'clear_data': row.data_nonce if not encrypted else 0,
-                'file_date': row.file_date,
-                'file_ordering': row.file_ordering,
-                'comment': row.comment,
-                'bucket_size': row.bucket_size,
-                'can_edit_file': row.can_edit_file,
-                'can_delete_file': row.can_delete_file,
-            })
+            log.webapi(log.API_CALL_GETFILE_OK, {"cid": callid})
+            return response_from_pack(lib.packer.pack_value({'files': files})), 200
 
-        log.webapi(log.API_CALL_GETFILE_OK, {"cid": callid})
-        return response_from_pack(lib.packer.pack_value({'files': files})), 200
+    elif file_identifier is not None:
+        callid = log.new_callid()
+        log.webapi(log.API_CALL_GETFILE, {"cid": callid, "file": file_identifier})
+
+        encrypted = True
+
+        with lib.database.connect() as conn:
+            c = lib.database.get_cursor(conn)
+
+            album_identifier_rows = select_album_identifier_by_file_identifier(c, file_identifier)
+
+            if len(album_identifier_rows) != 1:
+                log.webapi(
+                    log.API_CALL_GETFILE_ERROR,
+                    {"cid": callid, "error": 400, "point": "select_album_identifier_by_file_identifier"},
+                )
+                return '', 400
+
+            album_identifier = album_identifier_rows[0].identifier
+            file_rows = select_file(c, album_identifier, file_identifier)
+
+            if len(file_rows) != 1:
+                log.webapi(
+                    log.API_CALL_GETFILE_ERROR,
+                    {"cid": callid, "error": 400, "point": "select_file"},
+                )
+                return '', 400
+
+            files = []
+
+            for row in file_rows:
+                files.append({
+                    'identifier': row.identifier,
+                    'album_identifier': album_identifier,
+                    'encrypted_key': row.file_key_nonce,
+                    'encrypted_data': row.data_nonce if encrypted else 0,
+                    'clear_data': row.data_nonce if not encrypted else 0,
+                    'file_date': row.file_date,
+                    'file_ordering': row.file_ordering,
+                    'comment': row.comment,
+                    'bucket_size': row.bucket_size,
+                    'can_edit_file': row.can_edit_file,
+                    'can_delete_file': row.can_delete_file,
+                })
+
+            log.webapi(log.API_CALL_GETFILE_OK, {"cid": callid})
+            return response_from_pack(lib.packer.pack_value({'files': files})), 200
 
 
 @apiv1_blueprint.route('/api/v1/file-comment', methods=['POST'])
@@ -3476,6 +3670,7 @@ def api_file_comment_set():
                     user_id = %s
                     AND identifier = %s
                     AND deleted IS NULL
+                    AND version = 0
                 """
         else:
             query = """
@@ -3486,6 +3681,8 @@ def api_file_comment_set():
                 WHERE
                     creator_id = %s
                     AND identifier = %s
+                    AND deleted IS NULL
+                    AND version = 0
                 """
 
         c.execute(query, (
@@ -3517,6 +3714,7 @@ def api_file_delete():
     with lib.database.connect() as conn:
         cursor = lib.database.get_cursor(conn)
 
+        # delete all file versions
         query = """
             UPDATE
                 file
@@ -3609,6 +3807,7 @@ def api_file_bulkdelete():
     with lib.database.connect() as conn:
         cursor = lib.database.get_cursor(conn)
 
+        # delete all file versions
         query = f"""
             UPDATE
                 file
@@ -3672,6 +3871,7 @@ def api_file_download_token():
                 f.identifier = %s
                 AND f.user_id = %s
                 AND f.deleted IS NULL
+                AND f.version = 0
         """
 
         c.execute(query, (file_identifier, flask_login.current_user.row_id))
@@ -3779,6 +3979,7 @@ def api_file_insert_direct_link():
                 identifier = %s
                 AND user_id = %s
                 AND deleted IS NULL
+                AND version = 0
         """
         cursor.execute(query,
             (link_key, encrypted_data, file_identifier, flask_login.current_user.row_id))
@@ -4046,6 +4247,7 @@ def api_large_file_finish():
                     identifier = %s
                     AND user_id = %s
                     AND deleted IS NULL
+                    AND version = 0
             """
 
             cursor.execute(query, (index_info_nonce, file_size, b2_file_id, file_name,
@@ -4067,6 +4269,7 @@ def api_large_file_finish():
                     AND sa.email_to = %s
                     AND sa.can_add_files = 1
                     AND deleted IS NULL
+                    AND version = 0
             """
 
             cursor.execute(query, (index_info_nonce, file_size, b2_file_id, file_name,
@@ -4118,7 +4321,14 @@ def api_file_ordering():
         c = lib.database.get_cursor(conn)
 
         query = """
-            SELECT MAX(ordering) max_ordering FROM file WHERE user_id = %s AND deleted IS NULL
+            SELECT
+              MAX(ordering) max_ordering
+            FROM
+              file
+            WHERE
+              user_id = %s
+              AND deleted IS NULL
+              AND version = 0
         """
 
         c.execute(query, (flask_login.current_user.row_id, ))

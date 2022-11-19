@@ -61,12 +61,13 @@ def index_static_page_html_():
 @index_blueprint.route('/view')
 @index_blueprint.route('/view/<string:album>/')
 @index_blueprint.route('/view/<string:album>/<int:yyyymm>')
+@index_blueprint.route('/edit/<string:item>/')
 @index_blueprint.route('/zoom/<string:album>')
 @index_blueprint.route('/doc/information-policy')
 @index_blueprint.route('/doc/attach-backblaze-storage')
 @index_blueprint.route('/doc/privacy-policy')
 @index_blueprint.route('/doc/tos')
-def index_static_page_html(album=None, bucket=None, yyyymm=None, email=None, email_code=None, option=None):
+def index_static_page_html(album=None, item=None, bucket=None, yyyymm=None, email=None, email_code=None, option=None):
     resp = send_from_directory("modules/public", "index.html")
     log.webpage(resp.status)
     return resp
