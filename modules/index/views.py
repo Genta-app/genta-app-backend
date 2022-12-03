@@ -42,7 +42,6 @@ def index_static_page_html_():
 
 @index_blueprint.route('/index.html')
 @index_blueprint.route('/signup')
-@index_blueprint.route('/apply')
 @index_blueprint.route('/signup/<string:email>')
 #@index_blueprint.route('/signup/<string:email>/<string:email_code>')
 @index_blueprint.route('/album/<string:email>')
@@ -60,9 +59,7 @@ def index_static_page_html_():
 @index_blueprint.route('/upload/<string:album>')
 @index_blueprint.route('/view')
 @index_blueprint.route('/view/<string:album>/')
-@index_blueprint.route('/view/<string:album>/<int:yyyymm>')
-@index_blueprint.route('/edit/<string:item>/')
-@index_blueprint.route('/zoom/<string:album>')
+@index_blueprint.route('/view/<string:album>/<string:yyyymm_or_identifier>')
 @index_blueprint.route('/doc')
 @index_blueprint.route('/doc/')
 @index_blueprint.route('/doc/attach-backblaze-storage')
@@ -70,10 +67,14 @@ def index_static_page_html_():
 @index_blueprint.route('/doc/information-policy')
 @index_blueprint.route('/doc/privacy-policy')
 @index_blueprint.route('/doc/tos')
-def index_static_page_html(album=None, item=None, bucket=None, yyyymm=None, email=None, email_code=None, option=None):
+def index_static_page_html(album=None, item=None, bucket=None, yyyymm_or_identifier=None, email=None, email_code=None, option=None):
     resp = send_from_directory("modules/public", "index.html")
     log.webpage(resp.status)
     return resp
+
+@index_blueprint.route('/apply')
+def index_apply_redirect():
+    return redirect("/signup", code=301) # moved permanently
 
 @index_blueprint.route('/dl/<string:link_key>')
 def direct_link_viewer_static_page_html(link_key=None):
