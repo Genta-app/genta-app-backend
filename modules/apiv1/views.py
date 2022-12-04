@@ -570,6 +570,25 @@ def select_bucket_by_identifier(cursor, bucket_identifier):
     cursor.execute(query, (bucket_identifier, flask_login.current_user.row_id, ))
     return cursor.fetchall()
 
+def select_bucket_by_id(cursor, bucket_id):
+    query = '''
+        SELECT
+            id,
+            identifier,
+            is_system,
+            service,
+            bucket,
+            bucket_name,
+            bucket_prefix,
+            bucket_key_id
+        FROM
+            bucket
+        WHERE
+            id = %s
+            AND user_id = %s
+    '''
+    cursor.execute(query, (bucket_id, flask_login.current_user.row_id, ))
+    return cursor.fetchall()
 
 def delete_bucket(cursor, bucket_identifier):
     query = """
@@ -3131,23 +3150,39 @@ def api_bucket_download_token():
             return response_from_pack(pack), 200
 
         album_rows = select_album(c, album_identifier)
-
         if len(album_rows) != 1:
             log.webapi(log.API_CALL_POSTALBUMDOWNLOADTOKEN_ERROR,
                 {"cid": callid, "error": 400})
             return '', 400
 
         row = album_rows[0]
-        bucket_key_prefix = row.album_bucket_prefix
         bucket_id = row.bucket
-        api_key_id = row.bucket_prefix_key_id
-        api_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
-
+        bucket_key_prefix = row.album_bucket_prefix
         client = lib.b2.Client()
-        if not client.authorize_account(api_key_id, api_key):
-            log.webapi(log.API_CALL_POSTALBUMDOWNLOADTOKEN_ERROR,
-                {"cid": callid, "error": 401})
-            return '', 401
+
+        if row.is_system: # use album key id/key for system albums
+            api_key_id = row.bucket_prefix_key_id
+            api_key = adminapi.decrypt_album_prefix_bucket_key(row.id)
+
+            if not client.authorize_account(api_key_id, api_key):
+                log.webapi(log.API_CALL_POSTALBUMDOWNLOADTOKEN_ERROR,
+                    {"cid": callid, "error": 401, "point": "authorize album"})
+                return '', 401
+        else: # use bucket key id/key for attached storage
+            bucket_rows = select_bucket_by_id(c, row.bucket_id)
+            if len(bucket_rows) != 1:
+                log.webapi(log.API_CALL_POSTALBUMDOWNLOADTOKEN_ERROR,
+                    {"cid": callid, "error": 400, "point": "select_bucket_by_id"})
+                return '', 400
+
+            bucket_row = bucket_rows[0]
+            api_key_id = bucket_row.bucket_key_id
+            api_key = adminapi.decrypt_bucket_key(bucket_row.id)
+
+            if not client.authorize_account(api_key_id, api_key):
+                log.webapi(log.API_CALL_POSTALBUMDOWNLOADTOKEN_ERROR,
+                    {"cid": callid, "error": 401, "point": "authorize bucket"})
+                return '', 401
 
         auth_duration = 86400
         download_auth, expires = client.get_download_auth(
